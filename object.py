@@ -55,6 +55,7 @@ fps = FPS().start()
 # and consecFrames to track frames without motion
 kcw = KeyClipWriter(bufSize=args["buffer_size"])
 consecFrames = 0 #number of frames with no motion
+prev_detections = None
 
 # loop over the frames from the video stream
 try:
@@ -106,13 +107,23 @@ try:
                 y = startY - 15 if startY - 15 > 15 else startY + 15
                 cv2.putText(frame, label, (startX, y),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS[idx], 2)
-                print(timestamp, CLASSES[idx], confidence*100)
+
+                # record this frame
+                if prev_detections is None:
+                    continue
+
+                if np.array_equal(prev_detections, detections[0, 0, :, 1]):
+                    continue
 
                 consecFrames = 0
                 # if we are not already recording, start recording
                 if not kcw.recording:
+                    difference = set(detections[0, 0, :, 1]).symmetric_difference(set(prev_detections))
+                    for o in difference:
+                        print('{} appeared'.format(CLASSES[int(o)]))
                     p = "{}/{}.avi".format(args["output"],
                                            timestamp.strftime("%Y%m%d-%H%M%S"))
+                    print(timestamp, 'Start recording',p)
                     kcw.start(p, cv2.VideoWriter_fourcc(*args["codec"]),
                               args["fps"])
 
@@ -125,7 +136,10 @@ try:
         # if we are recording and reached a threshold on consecutive
         # number of frames with no action, stop recording the clip
         if kcw.recording and consecFrames == args["buffer_size"]:
+            print(timestamp, 'Stop recording')
             kcw.finish()
+
+        prev_detections = detections[0, 0, :, 1]  # save objects, detected on current frame
 
         if not args['headless']:
             # show the output frame
@@ -139,6 +153,8 @@ try:
         # update the FPS counter
         fps.update()
 except:
+    import traceback
+    traceback.print_exc()
     pass
 
 kcw.finish()
