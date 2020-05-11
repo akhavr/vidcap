@@ -78,6 +78,8 @@ class KeyClipWriter:
             # flush all remaining frames in the queue to file, and
             # release the writer pointer
             self.recording = False
+            if not self.thread:
+                return
             self.thread.join()
             self.flush()
             self.writer.release()
