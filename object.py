@@ -33,6 +33,9 @@ ap.add_argument("-f", "--fps", type=int, default=20,
 	help="FPS of output video")
 ap.add_argument('--headless', dest='headless', action='store_true', help='Run headless')
 ap.set_defaults(headless=False)
+ap.add_argument('--noblock', dest='block', action='store_false', help='Run detection in parallel')
+ap.add_argument('--block', dest='block', action='store_true', help='Run detection in the main thread')
+ap.set_defaults(block=False)
 args = vars(ap.parse_args())
 
 # initialize the list of class labels MobileNet SSD was trained to
@@ -63,7 +66,18 @@ inputQueue = Queue(maxsize=1)
 outputQueue = Queue(maxsize=1)
 detections = None
 
-def classify_frame(net, inputQueue, outputQueue):
+
+def classify_frame(net, frame):
+    frame = cv2.resize(frame, (300, 300))
+    blob = cv2.dnn.blobFromImage(frame, 0.007843,
+                                 (300, 300), 127.5)
+    # set the blob as input to our deep learning object
+    # detector and obtain the detections
+    net.setInput(blob)
+    return net.forward()
+
+
+def loop_classify_frame(net, inputQueue, outputQueue):
     # keep looping
     while True:
         # check to see if there is a frame in our input queue
@@ -72,13 +86,7 @@ def classify_frame(net, inputQueue, outputQueue):
         # grab the frame from the input queue, resize it, and
         # construct a blob from it
         frame = inputQueue.get()
-        frame = cv2.resize(frame, (300, 300))
-        blob = cv2.dnn.blobFromImage(frame, 0.007843,
-                                     (300, 300), 127.5)
-        # set the blob as input to our deep learning object
-        # detector and obtain the detections
-        net.setInput(blob)
-        detections = net.forward()
+        detections = classify_frame(net, frame)
         # write the detections to the output queue
         outputQueue.put(detections)
 
@@ -137,11 +145,12 @@ def loop_over_detections(frame, detections, prev_detections):
 
 # construct a child process *indepedent* from our main process of
 # execution
-print("[INFO] starting process...")
-p = Process(target=classify_frame, args=(net, inputQueue,
-	                                 outputQueue,))
-p.daemon = True
-p.start()
+if not args['block']:
+    print("[INFO] starting process...")
+    p = Process(target=loop_classify_frame, args=(net, inputQueue,
+                                                  outputQueue,))
+    p.daemon = True
+    p.start()
 
 # loop over the frames from the video stream
 try:
@@ -157,13 +166,18 @@ try:
         # grab the frame dimensions and convert it to a blob
         (h, w) = frame.shape[:2]
 
-        # if the input queue *is* empty, give the current frame to
-        # classify
-        if inputQueue.empty():
-            inputQueue.put(frame)
-        # if the output queue *is not* empty, grab the detections
-        if not outputQueue.empty():
-            detections = outputQueue.get()
+        if args['block']:
+            # run detection in current process
+            detections = classify_frame(net, frame)
+        else:
+            # if the input queue *is* empty, give the current frame to
+            # classify
+            if inputQueue.empty():
+                inputQueue.put(frame)
+
+            # if the output queue *is not* empty, grab the detections
+            if not outputQueue.empty():
+                detections = outputQueue.get()
 
         if detections is not None:
             if loop_over_detections(frame, detections, prev_detections):
@@ -179,7 +193,6 @@ try:
         if kcw.recording and consecFrames == args["buffer_size"]:
             print(datetime.datetime.now(), 'Stop recording')
             kcw.finish()
-
 
         if not args['headless']:
             # show the output frame
