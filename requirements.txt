@@ -2,3 +2,4 @@ imutils==0.5.3
 numpy==1.18.3
 opencv-contrib-python
 pkg-resources==0.0.0
+Flask==1.1.2
