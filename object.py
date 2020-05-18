@@ -3,6 +3,7 @@
 
 # import the necessary packages
 from pyimagesearch.keyclipwriter import KeyClipWriter
+from pyimagesearch.singlemotiondetector import SingleMotionDetector
 
 from imutils.video import VideoStream
 from imutils.video import FPS
@@ -37,11 +38,17 @@ ap.add_argument("--codec", type=str, default="MJPG",
 	help="codec of output video")
 ap.add_argument("-f", "--fps", type=int, default=20,
 	help="FPS of output video")
+
 ap.add_argument('--headless', dest='headless', action='store_true', help='Run headless')
 ap.set_defaults(headless=False)
+
 ap.add_argument('--noblock', dest='block', action='store_false', help='Run detection in parallel')
 ap.add_argument('--block', dest='block', action='store_true', help='Run detection in the main thread')
 ap.set_defaults(block=False)
+
+ap.add_argument('--motion', dest='motion', action='store_true', help='Run motion detection')
+ap.add_argument('--object', dest='motion', action='store_false', help='Run object detection')
+ap.set_defaults(motion=True)
 
 ap.add_argument("-i", "--ip", type=str, required=True,
 		help="ip address of the device")
@@ -200,14 +207,61 @@ def video_feed():
                     mimetype = "multipart/x-mixed-replace; boundary=frame")
 
 
-# construct a child process *indepedent* from our main process of
-# execution
-if not args['block']:
-    print("[INFO] starting process...")
-    p = Process(target=loop_classify_frame, args=(net, inputQueue,
-                                                  outputQueue,))
-    p.daemon = True
-    p.start()
+def detect_motion(frameCount=32):
+    global vs, outputFrame, lock
+
+    # initialize the motion detector and the total number of frames
+    # read thus far
+    md = SingleMotionDetector(accumWeight=0.1)
+    total = 0
+
+    # loop over frames from the video stream
+    while True:
+        # read the next frame from the video stream, resize it,
+        # convert the frame to grayscale, and blur it
+        frame = vs.read()
+        frame = imutils.resize(frame, width=400)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (7, 7), 0)
+
+        # grab the current timestamp and draw it on the frame
+        timestamp = datetime.datetime.now()
+        cv2.putText(frame, timestamp.strftime(
+            "%A %d %B %Y %I:%M:%S%p"), (10, frame.shape[0] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 255), 1)
+
+        # if the total number of frames has reached a sufficient
+        # number to construct a reasonable background model, then
+        # continue to process the frame
+        if total > frameCount:
+            # detect motion in the image
+            motion = md.detect(gray)
+            # check to see if motion was found in the frame
+            if motion is not None:
+                # unpack the tuple and draw the box surrounding the
+                # "motion area" on the output frame
+                (thresh, (minX, minY, maxX, maxY)) = motion
+                cv2.rectangle(frame, (minX, minY), (maxX, maxY),
+                        (0, 0, 255), 2)
+
+        # update the background model and increment the total number
+        # of frames read thus far
+        md.update(gray)
+        total += 1
+
+        if not args['headless']:
+            # show the output frame
+            cv2.imshow("Frame", frame)
+            key = cv2.waitKey(1) & 0xFF
+
+            # if the `q` key was pressed, break from the loop
+            if key == ord("q"):
+                break
+
+        # acquire the lock, set the output frame, and release the
+        # lock
+        with lock:
+            outputFrame = frame.copy()
 
 def detect_objects():
     # loop over the frames from the video stream
@@ -276,7 +330,20 @@ def detect_objects():
         pass
 
 if __name__ == '__main__':
-    t = threading.Thread(target=detect_objects)
+    # construct a child process *indepedent* from our main process of
+    # execution
+    if not args['block']:
+        print("[INFO] starting process...")
+        p = Process(target=loop_classify_frame, args=(net, inputQueue,
+                                                      outputQueue,))
+        p.daemon = True
+        p.start()
+
+
+    if args['motion']:
+        t = threading.Thread(target=detect_motion)
+    else:
+        t = threading.Thread(target=detect_objects)
     t.daemon = True
     t.start()
 
@@ -286,6 +353,7 @@ if __name__ == '__main__':
                 threaded=True, use_reloader=False)
     else:
         t.join()
+        pass
 
     kcw.finish()
     # stop the timer and display FPS information
