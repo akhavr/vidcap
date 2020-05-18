@@ -1,10 +1,16 @@
 # https://www.pyimagesearch.com/2016/02/29/saving-key-event-video-clips-with-opencv/
+# https://www.pyimagesearch.com/2019/09/02/opencv-stream-video-to-web-browser-html-page/
 
 # import the necessary packages
 from pyimagesearch.keyclipwriter import KeyClipWriter
 
 from imutils.video import VideoStream
 from imutils.video import FPS
+
+from flask import Response
+from flask import Flask
+from flask import render_template
+import threading
 
 from multiprocessing import Process
 from multiprocessing import Queue
@@ -36,6 +42,12 @@ ap.set_defaults(headless=False)
 ap.add_argument('--noblock', dest='block', action='store_false', help='Run detection in parallel')
 ap.add_argument('--block', dest='block', action='store_true', help='Run detection in the main thread')
 ap.set_defaults(block=False)
+
+ap.add_argument("-i", "--ip", type=str, required=True,
+		help="ip address of the device")
+ap.add_argument("--port", type=int, required=True,
+		help="ephemeral port number of the server (1024 to 65535)")
+
 args = vars(ap.parse_args())
 
 # initialize the list of class labels MobileNet SSD was trained to
@@ -48,6 +60,15 @@ COLORS = np.random.uniform(0, 255, size=(len(CLASSES), 3))
 # load our serialized model from disk
 print("[INFO] loading model...")
 net = cv2.dnn.readNetFromCaffe(args["prototxt"], args["model"])
+
+# initialize the output frame and a lock used to ensure thread-safe
+# exchanges of the output frames (useful when multiple browsers/tabs
+# are viewing the stream)
+outputFrame = None
+lock = threading.Lock()
+
+# initialize a flask object
+app = Flask(__name__)
 
 # initialize the video stream, allow the camera sensor to warm up,
 # and initialize the FPS counter
@@ -91,7 +112,7 @@ def loop_classify_frame(net, inputQueue, outputQueue):
         outputQueue.put(detections)
 
 
-def loop_over_detections(frame, detections, prev_detections):
+def loop_over_detections(frame, detections, prev_detections, w, h):
     detected = False
     # loop over the detections
     for i in np.arange(0, detections.shape[2]):
@@ -143,6 +164,42 @@ def loop_over_detections(frame, detections, prev_detections):
                           args["fps"])
     return detected
 
+def generate():
+    # grab global references to the output frame and lock variables
+    global outputFrame, lock
+    # loop over frames from the output stream
+    while True:
+        # wait until the lock is acquired
+        with lock:
+            # check if the output frame is available, otherwise skip
+            # the iteration of the loop
+            if outputFrame is None:
+                continue
+            # encode the frame in JPEG format
+            (flag, encodedImage) = cv2.imencode(".jpg", outputFrame)
+            # ensure the frame was successfully encoded
+            if not flag:
+                continue
+
+        # yield the output frame in the byte format
+        yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' +
+              bytearray(encodedImage) + b'\r\n')
+
+
+@app.route("/")
+def index():
+    # return the rendered template
+    return render_template("index.html")
+
+
+@app.route("/video_feed")
+def video_feed():
+    # return the response generated along with the specific media
+    # type (mime type)
+    return Response(generate(),
+                    mimetype = "multipart/x-mixed-replace; boundary=frame")
+
+
 # construct a child process *indepedent* from our main process of
 # execution
 if not args['block']:
@@ -152,70 +209,90 @@ if not args['block']:
     p.daemon = True
     p.start()
 
-# loop over the frames from the video stream
-try:
-    while True:
-        # grab the frame from the threaded video stream and resize it
-        # to have a maximum width of 400 pixels
-        frame = vs.read()
-        frame = imutils.resize(frame, width=400)
+def detect_objects():
+    # loop over the frames from the video stream
+    global detections, consecFrames, prev_detections
+    global outputFrame
+    try:
+        while True:
+            # grab the frame from the threaded video stream and resize it
+            # to have a maximum width of 400 pixels
+            frame = vs.read()
+            frame = imutils.resize(frame, width=400)
 
-        # update the key frame clip buffer
-        kcw.update(frame)
+            # update the key frame clip buffer
+            kcw.update(frame)
 
-        # grab the frame dimensions and convert it to a blob
-        (h, w) = frame.shape[:2]
+            # grab the frame dimensions and convert it to a blob
+            (h, w) = frame.shape[:2]
 
-        if args['block']:
-            # run detection in current process
-            detections = classify_frame(net, frame)
-        else:
-            # if the input queue *is* empty, give the current frame to
-            # classify
-            if inputQueue.empty():
-                inputQueue.put(frame)
+            if args['block']:
+                # run detection in current process
+                detections = classify_frame(net, frame)
+            else:
+                # if the input queue *is* empty, give the current frame to
+                # classify
+                if inputQueue.empty():
+                    inputQueue.put(frame)
 
-            # if the output queue *is not* empty, grab the detections
-            if not outputQueue.empty():
-                detections = outputQueue.get()
+                # if the output queue *is not* empty, grab the detections
+                if not outputQueue.empty():
+                    detections = outputQueue.get()
 
-        if detections is not None:
-            if loop_over_detections(frame, detections, prev_detections):
-                consecFrames = 0
-            prev_detections = detections[0, 0, :, 1]  # save objects, detected on current frame
+            if detections is not None:
+                if loop_over_detections(frame, detections, prev_detections, w, h):
+                    consecFrames = 0
+                prev_detections = detections[0, 0, :, 1]  # save objects, detected on current frame
 
-        # increment the number of consecutive frames that contain
-        # no action
-        consecFrames += 1
+            # increment the number of consecutive frames that contain
+            # no action
+            consecFrames += 1
 
-        # if we are recording and reached a threshold on consecutive
-        # number of frames with no action, stop recording the clip
-        if kcw.recording and consecFrames == args["buffer_size"]:
-            print(datetime.datetime.now(), 'Stop recording')
-            kcw.finish()
+            # if we are recording and reached a threshold on consecutive
+            # number of frames with no action, stop recording the clip
+            if kcw.recording and consecFrames == args["buffer_size"]:
+                print(datetime.datetime.now(), 'Stop recording')
+                kcw.finish()
 
-        if not args['headless']:
-            # show the output frame
-            cv2.imshow("Frame", frame)
-            key = cv2.waitKey(1) & 0xFF
+            if not args['headless']:
+                # show the output frame
+                cv2.imshow("Frame", frame)
+                key = cv2.waitKey(1) & 0xFF
 
-            # if the `q` key was pressed, break from the loop
-            if key == ord("q"):
-                break
-            
-        # update the FPS counter
-        fps.update()
-except:
-    import traceback
-    traceback.print_exc()
-    pass
+                # if the `q` key was pressed, break from the loop
+                if key == ord("q"):
+                    break
 
-kcw.finish()
-# stop the timer and display FPS information
-fps.stop()
-print("[INFO] elapsed time: {:.2f}".format(fps.elapsed()))
-print("[INFO] approx. FPS: {:.2f}".format(fps.fps()))
+            # acquire the lock, set the output frame, and release the
+            # lock
+            with lock:
+                outputFrame = frame.copy()
 
-# do a bit of cleanup
-cv2.destroyAllWindows()
-vs.stop()
+            # update the FPS counter
+            fps.update()
+    except:
+        import traceback
+        traceback.print_exc()
+        pass
+
+if __name__ == '__main__':
+    t = threading.Thread(target=detect_objects)
+    t.daemon = True
+    t.start()
+
+    if args['headless']:
+        # start the flask app
+        app.run(host=args["ip"], port=args["port"], debug=True,
+                threaded=True, use_reloader=False)
+    else:
+        t.join()
+
+    kcw.finish()
+    # stop the timer and display FPS information
+    fps.stop()
+    print("[INFO] elapsed time: {:.2f}".format(fps.elapsed()))
+    print("[INFO] approx. FPS: {:.2f}".format(fps.fps()))
+
+    # do a bit of cleanup
+    cv2.destroyAllWindows()
+    vs.stop()
