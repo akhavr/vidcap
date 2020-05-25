@@ -208,7 +208,7 @@ def video_feed():
 
 
 def detect_motion(frameCount=32):
-    global vs, outputFrame, lock
+    global vs, outputFrame, lock, kcw
 
     # initialize the motion detector and the total number of frames
     # read thus far
@@ -221,6 +221,10 @@ def detect_motion(frameCount=32):
         # convert the frame to grayscale, and blur it
         frame = vs.read()
         frame = imutils.resize(frame, width=400)
+
+        # update the key frame clip buffer
+        kcw.update(frame)
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (7, 7), 0)
 
@@ -244,6 +248,8 @@ def detect_motion(frameCount=32):
                 cv2.rectangle(frame, (minX, minY), (maxX, maxY),
                         (0, 0, 255), 2)
 
+                frame = detect_object_in_frame(frame, kcw)
+
         # update the background model and increment the total number
         # of frames read thus far
         md.update(gray)
@@ -263,51 +269,63 @@ def detect_motion(frameCount=32):
         with lock:
             outputFrame = frame.copy()
 
+def detect_object_in_frame(frame, kcw):
+    global detections, consecFrames, prev_detections
+    global outputFrame, fps
+
+    frame = imutils.resize(frame, width=400)
+
+    # update the key frame clip buffer
+    kcw.update(frame)
+
+    # grab the frame dimensions and convert it to a blob
+    (h, w) = frame.shape[:2]
+
+    if args['block']:
+        # run detection in current process
+        detections = classify_frame(net, frame)
+    else:
+        # if the input queue *is* empty, give the current frame to
+        # classify
+        if inputQueue.empty():
+            inputQueue.put(frame)
+
+        # if the output queue *is not* empty, grab the detections
+        if not outputQueue.empty():
+            detections = outputQueue.get()
+
+    if detections is not None:
+        if loop_over_detections(frame, detections, prev_detections, w, h):
+            consecFrames = 0
+        prev_detections = detections[0, 0, :, 1]  # save objects, detected on current frame
+
+    # increment the number of consecutive frames that contain
+    # no action
+    consecFrames += 1
+
+    # if we are recording and reached a threshold on consecutive
+    # number of frames with no action, stop recording the clip
+    if kcw.recording and consecFrames == args["buffer_size"]:
+        print(datetime.datetime.now(), 'Stop recording')
+        kcw.finish()
+
+    # acquire the lock, set the output frame, and release the
+    # lock
+    with lock:
+        outputFrame = frame.copy()
+
+    # update the FPS counter
+    fps.update()
+    return frame
+
 def detect_objects():
     # loop over the frames from the video stream
-    global detections, consecFrames, prev_detections
-    global outputFrame
     try:
         while True:
             # grab the frame from the threaded video stream and resize it
             # to have a maximum width of 400 pixels
             frame = vs.read()
-            frame = imutils.resize(frame, width=400)
-
-            # update the key frame clip buffer
-            kcw.update(frame)
-
-            # grab the frame dimensions and convert it to a blob
-            (h, w) = frame.shape[:2]
-
-            if args['block']:
-                # run detection in current process
-                detections = classify_frame(net, frame)
-            else:
-                # if the input queue *is* empty, give the current frame to
-                # classify
-                if inputQueue.empty():
-                    inputQueue.put(frame)
-
-                # if the output queue *is not* empty, grab the detections
-                if not outputQueue.empty():
-                    detections = outputQueue.get()
-
-            if detections is not None:
-                if loop_over_detections(frame, detections, prev_detections, w, h):
-                    consecFrames = 0
-                prev_detections = detections[0, 0, :, 1]  # save objects, detected on current frame
-
-            # increment the number of consecutive frames that contain
-            # no action
-            consecFrames += 1
-
-            # if we are recording and reached a threshold on consecutive
-            # number of frames with no action, stop recording the clip
-            if kcw.recording and consecFrames == args["buffer_size"]:
-                print(datetime.datetime.now(), 'Stop recording')
-                kcw.finish()
-
+            frame = detect_object_in_frame(frame, kcw)
             if not args['headless']:
                 # show the output frame
                 cv2.imshow("Frame", frame)
@@ -317,13 +335,6 @@ def detect_objects():
                 if key == ord("q"):
                     break
 
-            # acquire the lock, set the output frame, and release the
-            # lock
-            with lock:
-                outputFrame = frame.copy()
-
-            # update the FPS counter
-            fps.update()
     except:
         import traceback
         traceback.print_exc()
