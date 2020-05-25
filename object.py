@@ -50,6 +50,9 @@ ap.add_argument('--motion', dest='motion', action='store_true', help='Run motion
 ap.add_argument('--object', dest='motion', action='store_false', help='Run object detection')
 ap.set_defaults(motion=True)
 
+ap.add_argument('--memory', dest='memory', action='store_true', help='Debug memory leaks')
+ap.set_defaults(memory=False)
+
 ap.add_argument("-i", "--ip", type=str, required=True,
 		help="ip address of the device")
 ap.add_argument("--port", type=int, required=True,
@@ -209,16 +212,26 @@ def video_feed():
 
 def detect_motion(frameCount=32):
     global vs, outputFrame, lock, kcw
+    global consecFrames
 
     # initialize the motion detector and the total number of frames
     # read thus far
     md = SingleMotionDetector(accumWeight=0.1)
     total = 0
 
+    if args['memory']:
+        from pympler import tracker, muppy
+        tr = tracker.SummaryTracker()
+
     # loop over frames from the video stream
     while True:
         # read the next frame from the video stream, resize it,
         # convert the frame to grayscale, and blur it
+
+        if args['memory'] and total % 1000 == 0:
+            tr.print_diff()
+            print(len(muppy.get_objects()))
+
         frame = vs.read()
         frame = imutils.resize(frame, width=400)
 
@@ -249,6 +262,17 @@ def detect_motion(frameCount=32):
                         (0, 0, 255), 2)
 
                 frame = detect_object_in_frame(frame, kcw)
+
+            # increment the number of consecutive frames that contain
+            # no action
+            consecFrames += 1
+
+            # if we are recording and reached a threshold on consecutive
+            # number of frames with no action, stop recording the clip
+            if kcw.recording and consecFrames == args["buffer_size"]:
+                print(datetime.datetime.now(), 'Stop recording')
+                kcw.finish()
+
 
         # update the background model and increment the total number
         # of frames read thus far
@@ -299,16 +323,6 @@ def detect_object_in_frame(frame, kcw):
             consecFrames = 0
         prev_detections = detections[0, 0, :, 1]  # save objects, detected on current frame
 
-    # increment the number of consecutive frames that contain
-    # no action
-    consecFrames += 1
-
-    # if we are recording and reached a threshold on consecutive
-    # number of frames with no action, stop recording the clip
-    if kcw.recording and consecFrames == args["buffer_size"]:
-        print(datetime.datetime.now(), 'Stop recording')
-        kcw.finish()
-
     # acquire the lock, set the output frame, and release the
     # lock
     with lock:
@@ -319,6 +333,8 @@ def detect_object_in_frame(frame, kcw):
     return frame
 
 def detect_objects():
+    global consecFrames
+
     # loop over the frames from the video stream
     try:
         while True:
@@ -326,6 +342,17 @@ def detect_objects():
             # to have a maximum width of 400 pixels
             frame = vs.read()
             frame = detect_object_in_frame(frame, kcw)
+
+            # increment the number of consecutive frames that contain
+            # no action
+            consecFrames += 1
+
+            # if we are recording and reached a threshold on consecutive
+            # number of frames with no action, stop recording the clip
+            if kcw.recording and consecFrames == args["buffer_size"]:
+                print(datetime.datetime.now(), 'Stop recording')
+                kcw.finish()
+
             if not args['headless']:
                 # show the output frame
                 cv2.imshow("Frame", frame)
