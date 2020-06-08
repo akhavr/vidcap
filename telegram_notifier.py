@@ -1,40 +1,44 @@
 # Uses this https://github.com/python-telegram-bot/python-telegram-bot
 
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+import logging
 
 
-def initialize(token):
-    updater = Updater(token, use_context=True)
-    # Get the dispatcher to register handlers
-    dp = updater.dispatcher
-    # on different commands - answer in Telegram
-    dp.add_handler(CommandHandler("start", start))
-    # log all errors
-    dp.add_error_handler(error)
-    # Start the Bot
-    updater.start_polling()
-    return updater
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def start(update, context):
-    """Send a message when the command /start is issued."""
-    global tg_chat_id, tg_context
-    tg_chat_id = update.message.chat_id
-    tg_context = context
-    update.message.reply_text('Hi! {}'.format(tg_chat_id))
+class Notifier:
+    def __init__(self, token):
+        self.tg_chat_id = None
 
-def error(update, context):
-    """Log Errors caused by Updates."""
-    logger.warning('Update "%s" caused error "%s"', update, context.error)
-
-tg_chat_id = None
-
-def notify(msg):
-    global tg_chat_id, tg_context
-    print('Chat id {}'.format(tg_chat_id))
-    if not (tg_chat_id and tg_context):
+        self.updater = Updater(token, use_context=True)
+        # Get the dispatcher to register handlers
+        dp = self.updater.dispatcher
+        # on different commands - answer in Telegram
+        dp.add_handler(CommandHandler("start", lambda up, con: self.start(up, con)))
+        # log all errors
+        dp.add_error_handler(lambda: self.error)
+        # Start the Bot
+        self.updater.start_polling()
         return
-    print(msg)
-    tg_context.bot.send_message(tg_chat_id, msg)
+
+    def start(self, update, context):
+        """Send a message when the command /start is issued."""
+        self.tg_chat_id = update.message.chat_id
+        self.tg_context = context
+        update.message.reply_text('Hi! {}'.format(self.tg_chat_id))
+
+    def error(self, update, context):
+        """Log Errors caused by Updates."""
+        logger.warning('Update "%s" caused error "%s"', update, context.error)
+
+    def notify(self, msg):
+        print('Chat id {}'.format(self.tg_chat_id))
+        if not (self.tg_chat_id and self.tg_context):
+            return
+        print(msg)
+        self.tg_context.bot.send_message(self.tg_chat_id, msg)
 
 

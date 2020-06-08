@@ -21,7 +21,6 @@ import imutils
 import datetime
 import time
 import cv2
-import logging
 
 import config
 
@@ -29,9 +28,6 @@ import config
 import telegram_notifier
 
 # Enable logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # construct the argument parse and parse the arguments
 ap = argparse.ArgumentParser()
@@ -390,7 +386,7 @@ def detect_objects(notifier=None):
 
 
 if __name__ == '__main__':
-    updater = telegram_notifier.initialize(config.tg_token)
+    notifier = telegram_notifier.Notifier(config.tg_token)
 
     # construct a child process *indepedent* from our main process of
     # execution
@@ -402,9 +398,9 @@ if __name__ == '__main__':
         p.start()
 
     if args['motion']:
-        t = threading.Thread(target=lambda: detect_motion(notifier=telegram_notifier.notify))
+        t = threading.Thread(target=lambda: detect_motion(notifier=notifier.notify))
     else:
-        t = threading.Thread(target=lambda: detect_objects(notifier=telegram_notifier.notify))
+        t = threading.Thread(target=lambda: detect_objects(notifier=notifier.notify))
     t.daemon = True
     t.start()
 
