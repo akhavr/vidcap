@@ -407,7 +407,7 @@ if __name__ == '__main__':
     global url
     url = None
     if args['headless']:
-        url = 'http://{}:{}'.format(args["ip"], args["port"])
+        url = config.url
         # start the flask app
         app.run(host=args["ip"], port=args["port"], debug=True,
                 threaded=True, use_reloader=False)
