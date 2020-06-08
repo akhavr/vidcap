@@ -22,40 +22,51 @@ import datetime
 import time
 import cv2
 
+import config
+
+# Telegram notification
+import logging
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+
+# Enable logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # construct the argument parse and parse the arguments
 ap = argparse.ArgumentParser()
-ap.add_argument("-o", "--output", required=True,
-	help="path to output directory")
-ap.add_argument("-p", "--prototxt", required=True,
-        help="path to Caffe 'deploy' prototxt file")
-ap.add_argument("-m", "--model", required=True,
-        help="path to Caffe pre-trained model")
-ap.add_argument("-c", "--confidence", type=float, default=0.2,
-        help="minimum probability to filter weak detections")
-ap.add_argument("-b", "--buffer-size", type=int, default=32,
-	help="buffer size of video clip writer")
-ap.add_argument("--codec", type=str, default="MJPG",
-	help="codec of output video")
-ap.add_argument("-f", "--fps", type=int, default=20,
-	help="FPS of output video")
+ap.add_argument("-o", "--output", default=config.output,
+	        help="path to output directory")
+ap.add_argument("-p", "--prototxt", default=config.prototxt,
+                help="path to Caffe 'deploy' prototxt file")
+ap.add_argument("-m", "--model", default=config.model,
+                help="path to Caffe pre-trained model")
+ap.add_argument("-c", "--confidence", type=float, default=config.confidence,
+                help="minimum probability to filter weak detections")
+ap.add_argument("-b", "--buffer-size", type=int, default=config.buffer_size,
+	        help="buffer size of video clip writer")
+ap.add_argument("--codec", type=str, default=config.codec,
+	        help="codec of output video")
+ap.add_argument("-f", "--fps", type=int, default=config.fps,
+	        help="FPS of output video")
 
 ap.add_argument('--headless', dest='headless', action='store_true', help='Run headless')
-ap.set_defaults(headless=False)
+ap.set_defaults(headless=config.headless)
 
 ap.add_argument('--noblock', dest='block', action='store_false', help='Run detection in parallel')
 ap.add_argument('--block', dest='block', action='store_true', help='Run detection in the main thread')
-ap.set_defaults(block=False)
+ap.set_defaults(block=config.block)
 
 ap.add_argument('--motion', dest='motion', action='store_true', help='Run motion detection')
 ap.add_argument('--object', dest='motion', action='store_false', help='Run object detection')
-ap.set_defaults(motion=True)
+ap.set_defaults(motion=config.motion)
 
 ap.add_argument('--memory', dest='memory', action='store_true', help='Debug memory leaks')
-ap.set_defaults(memory=False)
+ap.set_defaults(memory=config.memory)
 
-ap.add_argument("-i", "--ip", type=str, required=True,
+ap.add_argument("-i", "--ip", type=str, default=config.ip,
 		help="ip address of the device")
-ap.add_argument("--port", type=int, required=True,
+ap.add_argument("--port", type=int, default=config.port,
 		help="ephemeral port number of the server (1024 to 65535)")
 
 args = vars(ap.parse_args())
