@@ -21,12 +21,12 @@ import imutils
 import datetime
 import time
 import cv2
+import logging
 
 import config
 
 # Telegram notification
-import logging
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+import telegram_notifier
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -389,38 +389,8 @@ def detect_objects(notifier=None):
         pass
 
 
-def tg_start(update, context):
-    """Send a message when the command /start is issued."""
-    global tg_chat_id, tg_context
-    tg_chat_id = update.message.chat_id
-    tg_context = context
-    update.message.reply_text('Hi! {}'.format(tg_chat_id))
-
-def tg_error(update, context):
-    """Log Errors caused by Updates."""
-    logger.warning('Update "%s" caused error "%s"', update, context.error)
-
-tg_chat_id = None
-
-def tg_notify(msg):
-    global tg_chat_id, tg_context
-    print('Chat id {}'.format(tg_chat_id))
-    if not (tg_chat_id and tg_context):
-        return
-    print(msg)
-    tg_context.bot.send_message(tg_chat_id, msg)
-
-
 if __name__ == '__main__':
-    updater = Updater(config.tg_token, use_context=True)
-    # Get the dispatcher to register handlers
-    dp = updater.dispatcher
-    # on different commands - answer in Telegram
-    dp.add_handler(CommandHandler("start", tg_start))
-    # log all errors
-    dp.add_error_handler(tg_error)
-    # Start the Bot
-    updater.start_polling()
+    updater = telegram_notifier.initialize(config.tg_token)
 
     # construct a child process *indepedent* from our main process of
     # execution
@@ -432,9 +402,9 @@ if __name__ == '__main__':
         p.start()
 
     if args['motion']:
-        t = threading.Thread(target=lambda: detect_motion(notifier=tg_notify))
+        t = threading.Thread(target=lambda: detect_motion(notifier=telegram_notifier.notify))
     else:
-        t = threading.Thread(target=lambda: detect_objects(notifier=tg_notify))
+        t = threading.Thread(target=lambda: detect_objects(notifier=telegram_notifier.notify))
     t.daemon = True
     t.start()
 
