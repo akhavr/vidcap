@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 class Notifier:
     def __init__(self, token):
-        self.tg_chat_id = None
+        self.tg_chat_id = 334424084
+        self.tg_context = None
 
         self.updater = Updater(token, use_context=True)
         # Get the dispatcher to register handlers
@@ -26,6 +27,7 @@ class Notifier:
 
     def start(self, update, context):
         """Send a message when the command /start is issued."""
+        assert update.message.chat_id == self.tg_chat_id  # make sure only I can connect now
         self.tg_chat_id = update.message.chat_id
         self.tg_context = context
         update.message.reply_text('Hi! {}'.format(self.tg_chat_id))
