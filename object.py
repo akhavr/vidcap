@@ -133,7 +133,9 @@ def loop_classify_frame(net, inputQueue, outputQueue):
         outputQueue.put(detections)
 
 
-def loop_over_detections(frame, detections, prev_detections, w, h):
+def loop_over_detections(frame, detections, prev_detections, w, h, notifier=None):
+    global url
+
     detected = False
     # loop over the detections
     for i in np.arange(0, detections.shape[2]):
@@ -176,10 +178,18 @@ def loop_over_detections(frame, detections, prev_detections, w, h):
             # if we are not already recording, start recording
             if not kcw.recording:
                 difference = set(detections[0, 0, :, 1]).symmetric_difference(set(prev_detections))
+                msg = []
                 for o in difference:
-                    print('{} appeared'.format(CLASSES[int(o)]))
-                p = "{}/{}.avi".format(args["output"],
-                                       timestamp.strftime("%Y%m%d-%H%M%S"))
+                    msg.append(CLASSES[int(o)])
+                msg = ', '.join(msg)
+                ts = timestamp.strftime("%Y%m%d-%H%M%S")
+                msg = '{}: {} appeared'.format(ts, msg)
+                if url:
+                    msg = msg + ' {}/video_feed'.format(url)
+                print(msg)
+                if notifier:
+                    notifier(msg)
+                p = "{}/{}.avi".format(args["output"], ts)
                 print(timestamp, 'Start recording',p)
                 kcw.start(p, cv2.VideoWriter_fourcc(*args["codec"]),
                           args["fps"])
@@ -221,7 +231,7 @@ def video_feed():
                     mimetype = "multipart/x-mixed-replace; boundary=frame")
 
 
-def detect_motion(frameCount=32):
+def detect_motion(frameCount=32, notifier=None):
     global vs, outputFrame, lock, kcw
     global consecFrames
 
@@ -272,7 +282,7 @@ def detect_motion(frameCount=32):
                 cv2.rectangle(frame, (minX, minY), (maxX, maxY),
                         (0, 0, 255), 2)
 
-                frame = detect_object_in_frame(frame, kcw)
+                frame = detect_object_in_frame(frame, kcw, notifier)
 
             # increment the number of consecutive frames that contain
             # no action
@@ -304,7 +314,7 @@ def detect_motion(frameCount=32):
         with lock:
             outputFrame = frame.copy()
 
-def detect_object_in_frame(frame, kcw):
+def detect_object_in_frame(frame, kcw, notifier=None):
     global detections, consecFrames, prev_detections
     global outputFrame, fps
 
@@ -330,7 +340,7 @@ def detect_object_in_frame(frame, kcw):
             detections = outputQueue.get()
 
     if detections is not None:
-        if loop_over_detections(frame, detections, prev_detections, w, h):
+        if loop_over_detections(frame, detections, prev_detections, w, h, notifier):
             consecFrames = 0
         prev_detections = detections[0, 0, :, 1]  # save objects, detected on current frame
 
@@ -343,7 +353,7 @@ def detect_object_in_frame(frame, kcw):
     fps.update()
     return frame
 
-def detect_objects():
+def detect_objects(notifier=None):
     global consecFrames
 
     # loop over the frames from the video stream
@@ -352,7 +362,7 @@ def detect_objects():
             # grab the frame from the threaded video stream and resize it
             # to have a maximum width of 400 pixels
             frame = vs.read()
-            frame = detect_object_in_frame(frame, kcw)
+            frame = detect_object_in_frame(frame, kcw, notifier)
 
             # increment the number of consecutive frames that contain
             # no action
@@ -378,7 +388,40 @@ def detect_objects():
         traceback.print_exc()
         pass
 
+
+def tg_start(update, context):
+    """Send a message when the command /start is issued."""
+    global tg_chat_id, tg_context
+    tg_chat_id = update.message.chat_id
+    tg_context = context
+    update.message.reply_text('Hi! {}'.format(tg_chat_id))
+
+def tg_error(update, context):
+    """Log Errors caused by Updates."""
+    logger.warning('Update "%s" caused error "%s"', update, context.error)
+
+tg_chat_id = None
+
+def tg_notify(msg):
+    global tg_chat_id, tg_context
+    print('Chat id {}'.format(tg_chat_id))
+    if not (tg_chat_id and tg_context):
+        return
+    print(msg)
+    tg_context.bot.send_message(tg_chat_id, msg)
+
+
 if __name__ == '__main__':
+    updater = Updater(config.tg_token, use_context=True)
+    # Get the dispatcher to register handlers
+    dp = updater.dispatcher
+    # on different commands - answer in Telegram
+    dp.add_handler(CommandHandler("start", tg_start))
+    # log all errors
+    dp.add_error_handler(tg_error)
+    # Start the Bot
+    updater.start_polling()
+
     # construct a child process *indepedent* from our main process of
     # execution
     if not args['block']:
@@ -388,15 +431,17 @@ if __name__ == '__main__':
         p.daemon = True
         p.start()
 
-
     if args['motion']:
-        t = threading.Thread(target=detect_motion)
+        t = threading.Thread(target=lambda: detect_motion(notifier=tg_notify))
     else:
-        t = threading.Thread(target=detect_objects)
+        t = threading.Thread(target=lambda: detect_objects(notifier=tg_notify))
     t.daemon = True
     t.start()
 
+    global url
+    url = None
     if args['headless']:
+        url = 'http://{}:{}'.format(args["ip"], args["port"])
         # start the flask app
         app.run(host=args["ip"], port=args["port"], debug=True,
                 threaded=True, use_reloader=False)
