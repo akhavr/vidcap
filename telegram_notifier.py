@@ -20,7 +20,7 @@ class Notifier:
         # on different commands - answer in Telegram
         dp.add_handler(CommandHandler("start", lambda up, con: self.start(up, con)))
         # log all errors
-        dp.add_error_handler(lambda: self.error)
+        dp.add_error_handler(lambda up, con: self.error(up, con))
         # Start the Bot
         self.updater.start_polling()
         return
