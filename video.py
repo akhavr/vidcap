@@ -155,12 +155,6 @@ class GenericDetector:
                 consecFrames = 0
             self.prev_detections = detections[0, 0, :, 1]  # save objects, detected on current frame
 
-        # acquire the lock, set the output frame, and release the lock
-        with self.lock:
-            self.outputFrame = frame.copy()
-
-        # update the FPS counter
-        self.fps.update()
         return frame        
 
     def _classify_frame(self, frame):
@@ -272,6 +266,14 @@ class DetectMotion(GenericDetector):
 
                     frame = self.detect_object_in_frame(frame)
 
+                # stream video frame
+                # acquire the lock, set the output frame, and release the lock
+                with self.lock:
+                    self.outputFrame = frame.copy()
+
+                # update the FPS counter
+                self.fps.update()
+
                 # increment the number of consecutive frames that contain
                 # no action
                 self.consecFrames += 1
@@ -311,6 +313,14 @@ class DetectObject(GenericDetector):
                 # to have a maximum width of 400 pixels
                 frame = self.vs.read()
                 frame = self.detect_object_in_frame(frame)
+
+                # stream video frame
+                # acquire the lock, set the output frame, and release the lock
+                with self.lock:
+                    self.outputFrame = frame.copy()
+
+                # update the FPS counter
+                self.fps.update()
 
                 # increment the number of consecutive frames that contain
                 # no action
