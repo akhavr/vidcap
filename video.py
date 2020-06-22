@@ -152,7 +152,7 @@ class GenericDetector:
         
         if detections is not None:
             if self.loop_over_detections(frame, detections, w, h):
-                consecFrames = 0
+                self.consecFrames = 0
             self.prev_detections = detections[0, 0, :, 1]  # save objects, detected on current frame
 
         return frame        
@@ -280,7 +280,7 @@ class DetectMotion(GenericDetector):
 
                 # if we are recording and reached a threshold on consecutive
                 # number of frames with no action, stop recording the clip
-                if self.kcw.recording and self.consecFrames == self.buffer_size:
+                if self.kcw.recording and self.consecFrames >= self.buffer_size:
                     print(datetime.datetime.now(), 'Stop recording')
                     self.kcw.finish()
 
