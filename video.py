@@ -298,11 +298,6 @@ class DetectMotion(GenericDetector):
                 if key == ord("q"):
                     break
 
-            # acquire the lock, set the output frame, and release the
-            # lock
-            with self.lock:
-                outputFrame = frame.copy()
-
 
 class DetectObject(GenericDetector):
     def detect(self):
