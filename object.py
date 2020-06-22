@@ -98,7 +98,7 @@ if __name__ == '__main__':
     # construct a child process *indepedent* from our main process of
     # execution
     if not args['block']:
-        print("[INFO] starting process...")
+        print("[INFO] starting object detection process...")
         p = Process(target=detector.loop_classify_frame)
         p.daemon = True
         p.start()

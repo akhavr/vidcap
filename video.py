@@ -236,6 +236,9 @@ class DetectMotion(GenericDetector):
                 print(len(muppy.get_objects()))
 
             frame = self.vs.read()
+            if frame is None:
+                print('Problem reading video feed')
+                continue
             frame = imutils.resize(frame, width=400)
 
             # update the key frame clip buffer
@@ -302,43 +305,38 @@ class DetectMotion(GenericDetector):
 class DetectObject(GenericDetector):
     def detect(self):
         # loop over the frames from the video stream
-        try:
-            while True:
-                # grab the frame from the threaded video stream and resize it
-                # to have a maximum width of 400 pixels
-                frame = self.vs.read()
-                frame = self.detect_object_in_frame(frame)
+        while True:
+            # grab the frame from the threaded video stream and resize it
+            # to have a maximum width of 400 pixels
+            frame = self.vs.read()
+            if frame is None:
+                print('Problem reading video feed')
+                continue
+            frame = self.detect_object_in_frame(frame)
 
-                # stream video frame
-                # acquire the lock, set the output frame, and release the lock
-                with self.lock:
-                    self.outputFrame = frame.copy()
+            # stream video frame
+            # acquire the lock, set the output frame, and release the lock
+            with self.lock:
+                self.outputFrame = frame.copy()
 
-                # update the FPS counter
-                self.fps.update()
+            # update the FPS counter
+            self.fps.update()
 
-                # increment the number of consecutive frames that contain
-                # no action
-                self.consecFrames += 1
+            # increment the number of consecutive frames that contain
+            # no action
+            self.consecFrames += 1
 
-                # if we are recording and reached a threshold on consecutive
-                # number of frames with no action, stop recording the clip
-                if self.kcw.recording and self.consecFrames == self.buffer_size:
-                    print(datetime.datetime.now(), 'Stop recording')
-                    self.kcw.finish()
+            # if we are recording and reached a threshold on consecutive
+            # number of frames with no action, stop recording the clip
+            if self.kcw.recording and self.consecFrames == self.buffer_size:
+                print(datetime.datetime.now(), 'Stop recording')
+                self.kcw.finish()
 
-                if not self.headless:
-                    # show the output frame
-                    cv2.imshow("Frame", frame)
-                    key = cv2.waitKey(1) & 0xFF
+            if not self.headless:
+                # show the output frame
+                cv2.imshow("Frame", frame)
+                key = cv2.waitKey(1) & 0xFF
 
-                    # if the `q` key was pressed, break from the loop
-                    if key == ord("q"):
-                        break
-
-        except:
-            import traceback
-            traceback.print_exc()
-            pass
-
-
+                # if the `q` key was pressed, break from the loop
+                if key == ord("q"):
+                    break
