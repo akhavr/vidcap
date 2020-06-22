@@ -3,10 +3,6 @@
 
 # import the necessary packages
 
-from flask import Response
-from flask import Flask
-from flask import render_template
-
 from multiprocessing import Process
 import argparse
 import threading
@@ -61,31 +57,12 @@ ap.add_argument("--port", type=int, default=config.port,
 
 args = vars(ap.parse_args())
 
-# load our serialized model from disk
-print("[INFO] loading model...")
-net = cv2.dnn.readNetFromCaffe(args["prototxt"], args["model"])
-
-
-# initialize a flask object
-app = Flask(__name__)
-
-
-@app.route("/")
-def index():
-    # return the rendered template
-    return render_template("index.html")
-
-
-@app.route("/video_feed")
-def video_feed():
-    global detector
-    # return the response generated along with the specific media
-    # type (mime type)
-    return Response(detector.generate(),
-                    mimetype = "multipart/x-mixed-replace; boundary=frame")
-
 
 if __name__ == '__main__':
+    # load our serialized model from disk
+    print("[INFO] loading model...")
+    net = cv2.dnn.readNetFromCaffe(args["prototxt"], args["model"])
+
     notifier = None
     try:
         notifier = telegram_notifier.Notifier(config.tg_token)
@@ -131,10 +108,14 @@ if __name__ == '__main__':
     t.start()
 
     if args['headless']:
+        import web
+        app = web.create_flask(detector)
         url = config.url
         # start the flask app
-        app.run(host=args["ip"], port=args["port"], debug=True,
-                threaded=True, use_reloader=False)
+        app.run(host=args["ip"], port=args["port"],
+                debug=True,
+                threaded=True,
+                use_reloader=False)
     else:
         t.join()
         pass
