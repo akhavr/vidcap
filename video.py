@@ -199,6 +199,27 @@ class GenericDetector:
             # write the detections to the output queue
             self.outputQueue.put(detections)
 
+    def generate(self):
+        "Yield image/jpeg for web serving"
+        # grab global references to the output frame and lock variables
+        # loop over frames from the output stream
+        while True:
+            # wait until the lock is acquired
+            with self.lock:
+                # check if the output frame is available, otherwise skip
+                # the iteration of the loop
+                if self.outputFrame is None:
+                    continue
+                # encode the frame in JPEG format
+                (flag, encodedImage) = cv2.imencode(".jpg", self.outputFrame)
+                # ensure the frame was successfully encoded
+                if not flag:
+                    continue
+
+            # yield the output frame in the byte format
+            yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' +
+                  bytearray(encodedImage) + b'\r\n')
+
 
 class DetectMotion(GenericDetector):
     def detect(self):
