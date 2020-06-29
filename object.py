@@ -3,7 +3,6 @@
 
 # import the necessary packages
 
-from multiprocessing import Process
 import argparse
 import threading
 
@@ -58,6 +57,19 @@ ap.add_argument("--port", type=int, default=config.port,
 args = vars(ap.parse_args())
 
 
+def thread_wrap(threadfunc):
+    # https://stackoverflow.com/questions/29692250/restarting-a-thread-in-python
+    def wrapper():
+        while True:
+            try:
+                threadfunc()
+            except BaseException as e:
+                print('{!r}; restarting thread'.format(e))
+            else:
+                print('exited normally, bad thread; restarting')
+    return wrapper
+
+
 if __name__ == '__main__':
     # load our serialized model from disk
     print("[INFO] loading model...")
@@ -95,15 +107,14 @@ if __name__ == '__main__':
                                       debugmemory=args['memory'],
                                       blocking=args['block'])
 
-    # construct a child process *indepedent* from our main process of
-    # execution
+    # construct a child thread *indepedent* from our main thread of execution
     if not args['block']:
-        print("[INFO] starting object detection process...")
-        p = Process(target=detector.loop_classify_frame)
-        p.daemon = True
-        p.start()
+        print("[INFO] starting object detection thread...")
+        t = threading.Thread(target=thread_wrap(detector.loop_classify_frame))
+        t.daemon = True
+        t.start()
 
-    t = threading.Thread(target=lambda: detector.detect())
+    t = threading.Thread(target=thread_wrap(lambda: detector.detect()))
     t.daemon = True
     t.start()
 
